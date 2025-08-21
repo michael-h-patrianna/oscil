@@ -102,14 +102,14 @@ endif()
 
 # Sources
 set(OSCIL_SOURCES
-  src/PluginProcessor.cpp
-  src/PluginEditor.cpp
-  src/OscilloscopeComponent.cpp
+  src/plugin/PluginProcessor.cpp
+  src/plugin/PluginEditor.cpp
+  src/render/OscilloscopeComponent.cpp
 )
 set(OSCIL_HEADERS
-  src/PluginProcessor.h
-  src/PluginEditor.h
-  src/OscilloscopeComponent.h
+  src/plugin/PluginProcessor.h
+  src/plugin/PluginEditor.h
+  src/render/OscilloscopeComponent.h
   src/dsp/RingBuffer.h
 )
 

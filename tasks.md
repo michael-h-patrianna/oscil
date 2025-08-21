@@ -57,15 +57,13 @@ This task list follows a systematic approach starting with core audio functional
 - ✅ Rounded rectangle background with dark theme
 - ✅ Real-time waveform updates at 30 FPS
 - ✅ Automatic vertical spacing for multiple channels
-
-**Remaining Work:**
 - [ ] Integrate bgfx rendering backend (Metal/D3D12/Vulkan; OpenGL fallback)
 - [ ] Implement proper anti-aliasing (shader/thick line approach)
 - [ ] Add vertex / transient buffer optimization for 60+ FPS
 
 ---
 
-### Task 1.3: Basic UI Editor Window
+### Task 1.5: Basic UI Editor Window
 **Priority**: CRITICAL
 **Dependencies**: Task 1.1
 **Estimated Time**: 4 hours
@@ -96,7 +94,7 @@ This task list follows a systematic approach starting with core audio functional
 
 ---
 
-### Task 1.4: GPU Waveform Rendering Foundation (bgfx)
+### Task 1.6: GPU Waveform Rendering Foundation (bgfx)
 **Priority**: CRITICAL
 **Dependencies**: Task 1.2, Task 1.3
 **Estimated Time**: 10 hours

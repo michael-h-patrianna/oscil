@@ -2,7 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 
-#include "dsp/RingBuffer.h"
+#include "../dsp/RingBuffer.h"
 
 class OscilAudioProcessor : public juce::AudioProcessor {
    public:

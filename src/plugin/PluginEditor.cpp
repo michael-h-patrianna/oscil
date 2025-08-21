@@ -1,6 +1,6 @@
 #include "PluginEditor.h"
 
-#include "OscilloscopeComponent.h"
+#include "../render/OscilloscopeComponent.h"
 #include "PluginProcessor.h"
 
 OscilAudioProcessorEditor::OscilAudioProcessorEditor(OscilAudioProcessor& p) : juce::AudioProcessorEditor(&p), ap(p) {

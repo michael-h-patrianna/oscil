@@ -1,7 +1,7 @@
 #include "OscilloscopeComponent.h"
 
-#include "PluginProcessor.h"
-#include "dsp/RingBuffer.h"
+#include "../plugin/PluginProcessor.h"
+#include "../dsp/RingBuffer.h"
 
 using juce::Colour;
 using juce::Graphics;
