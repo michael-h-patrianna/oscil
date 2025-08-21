@@ -1,0 +1,34 @@
+{
+  "version": 5,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "default-debug",
+      "displayName": "Debug",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "OSCIL_ENABLE_CLANG_TIDY": "ON"
+      }
+    },
+    {
+      "name": "default-release",
+      "displayName": "Release",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "ENABLE_LTO": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    { "name": "build-debug", "configurePreset": "default-debug" },
+    { "name": "build-release", "configurePreset": "default-release" }
+  ],
+  "testPresets": [
+    { "name": "test-debug", "configurePreset": "default-debug" },
+    { "name": "test-release", "configurePreset": "default-release" }
+  ]
+}

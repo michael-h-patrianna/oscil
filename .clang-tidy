@@ -1,0 +1,4 @@
+Checks: '*,-llvm-header-guard,-cppcoreguidelines-avoid-magic-numbers,-fuchsia-default-arguments,-fuchsia-overloaded-operator,-google-runtime-references'
+WarningsAsErrors: '*'
+HeaderFilterRegex: 'src/.*|tests/.*'
+FormatStyle: none

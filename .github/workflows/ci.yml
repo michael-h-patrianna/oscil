@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+
+jobs:
+  build-matrix:
+    name: Build and Test (${{ matrix.os }} / ${{ matrix.build_type }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-14, windows-2022]
+        build_type: [Debug, Release]
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up CMake
+        uses: lukka/get-cmake@v3.29.3
+      - name: Install dependencies (Linux)
+        if: startsWith(matrix.os, 'ubuntu')
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libx11-dev libxrandr-dev libxinerama-dev libxcursor-dev libxi-dev ccache
+          echo "CCACHE_DIR=$HOME/.ccache" >> $GITHUB_ENV
+          echo "CCACHE_BASEDIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
+          echo "CCACHE_COMPRESS=true" >> $GITHUB_ENV
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=${{ matrix.build_type }}
+      - name: Build
+        run: cmake --build build --config ${{ matrix.build_type }} -- -j 2
+      - name: Tests
+        run: ctest --test-dir build -C ${{ matrix.build_type }} --output-on-failure
+
+  lint:
+    name: Clang-Tidy (Linux)
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang-tidy and clang-format
+        run: sudo apt-get update && sudo apt-get install -y clang-tidy clang-format
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DOSCIL_ENABLE_CLANG_TIDY=ON
+      - name: Build (to run clang-tidy)
+        run: cmake --build build --config Debug
+      - name: Format check
+        run: cmake --build build --target format-check
