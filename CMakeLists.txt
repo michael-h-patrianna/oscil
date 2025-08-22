@@ -21,6 +21,7 @@ option(OSCIL_ENABLE_IWYU "Enable include-what-you-use if available" OFF)
 option(OSCIL_ENABLE_COVERAGE "Enable coverage flags and gcovr target (Linux/Debug)" OFF)
 option(OSCIL_BUILD_UNIVERSAL "On macOS build a universal (arm64+x86_64) binary" ON)
 option(OSCIL_ENABLE_OPENGL "Enable optional OpenGL acceleration via JUCE OpenGL context (default OFF for safety)" OFF)
+option(OSCIL_DEBUG_HOOKS "Enable debug GPU render hooks for testing (requires OSCIL_ENABLE_OPENGL)" OFF)
 
 # Allow user to override JUCE tag; default to master to track latest until pinned
 set(JUCE_GIT_REPOSITORY "https://github.com/juce-framework/JUCE.git" CACHE STRING "JUCE git repository")
@@ -107,13 +108,27 @@ set(OSCIL_SOURCES
   src/plugin/PluginEditor.cpp
   src/render/OscilloscopeComponent.cpp
   src/render/OpenGLManager.cpp
+  src/render/GpuRenderHook.cpp
+  src/render/DecimationProcessor.cpp
+  src/audio/WaveformDataBridge.cpp
+  src/state/TrackState.cpp
+  src/theme/ColorTheme.cpp
+  src/theme/ThemeManager.cpp
+  src/util/PerformanceMonitor.cpp
 )
 set(OSCIL_HEADERS
   src/plugin/PluginProcessor.h
   src/plugin/PluginEditor.h
   src/render/OscilloscopeComponent.h
   src/render/OpenGLManager.h
+  src/render/GpuRenderHook.h
+  src/render/DecimationProcessor.h
   src/dsp/RingBuffer.h
+  src/audio/WaveformDataBridge.h
+  src/state/TrackState.h
+  src/theme/ColorTheme.h
+  src/theme/ThemeManager.h
+  src/util/PerformanceMonitor.h
 )
 
 # Define the plugin target using JUCE's CMake functions
@@ -178,6 +193,12 @@ if(OSCIL_ENABLE_OPENGL)
   target_link_libraries(oscil_plugin PRIVATE juce::juce_opengl)
   target_compile_definitions(oscil_plugin PRIVATE OSCIL_ENABLE_OPENGL=1)
   message(STATUS "OpenGL acceleration enabled via JUCE OpenGL module")
+
+  # Debug hooks for testing
+  if(OSCIL_DEBUG_HOOKS)
+    target_compile_definitions(oscil_plugin PRIVATE OSCIL_DEBUG_HOOKS=1)
+    message(STATUS "Debug GPU render hooks enabled")
+  endif()
 else()
   target_compile_definitions(oscil_plugin PRIVATE OSCIL_ENABLE_OPENGL=0)
   message(STATUS "OpenGL acceleration disabled (CPU-only rendering)")
@@ -245,8 +266,24 @@ if(BUILD_TESTING)
   add_executable(oscil_tests
     tests/test_ringbuffer.cpp
     tests/test_downsampler.cpp
+    tests/test_waveform_bridge.cpp
+    tests/test_trackstate.cpp
+    tests/test_theme_system.cpp
+    tests/test_performance_monitor.cpp
+    tests/test_performance_optimizations.cpp
+    src/audio/WaveformDataBridge.cpp
+    src/state/TrackState.cpp
+    src/theme/ColorTheme.cpp
+    src/theme/ThemeManager.cpp
+    src/util/PerformanceMonitor.cpp
+    src/render/DecimationProcessor.cpp
   )
-  target_link_libraries(oscil_tests PRIVATE Catch2::Catch2WithMain)
+  target_link_libraries(oscil_tests PRIVATE
+    Catch2::Catch2WithMain
+    juce::juce_core
+    juce::juce_data_structures
+    juce::juce_graphics
+  )
   target_include_directories(oscil_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
   target_compile_features(oscil_tests PRIVATE cxx_std_20)
 

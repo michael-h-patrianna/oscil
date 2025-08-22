@@ -1,4 +1,5 @@
 #include "OpenGLManager.h"
+#include "GpuRenderHook.h"
 
 #if OSCIL_ENABLE_OPENGL
 #include <juce_opengl/juce_opengl.h>
@@ -73,6 +74,22 @@ void OpenGLManager::setContextCreatedCallback(std::function<void()> callback) {
 #endif
 }
 
+void OpenGLManager::setGpuRenderHook(std::shared_ptr<GpuRenderHook> hook) {
+#if OSCIL_ENABLE_OPENGL
+    gpuRenderHook = std::move(hook);
+#else
+    juce::ignoreUnused(hook);
+#endif
+}
+
+std::shared_ptr<GpuRenderHook> OpenGLManager::getGpuRenderHook() const {
+#if OSCIL_ENABLE_OPENGL
+    return gpuRenderHook;
+#else
+    return nullptr;
+#endif
+}
+
 #if OSCIL_ENABLE_OPENGL
 void OpenGLManager::newOpenGLContextCreated() {
     // Log basic OpenGL info
@@ -86,6 +103,9 @@ void OpenGLManager::newOpenGLContextCreated() {
 void OpenGLManager::renderOpenGL() {
     // No custom OpenGL rendering in this scaffold - JUCE handles compositing
     // This method is called by JUCE during the render cycle
+
+    // Future GPU effects will be handled through the GpuRenderHook system
+    // integrated into the paint cycle rather than this low-level render callback
 }
 
 void OpenGLManager::openGLContextClosing() {

@@ -6,9 +6,15 @@
 #include <juce_opengl/juce_opengl.h>
 #endif
 
+// Forward declarations
+class GpuRenderHook;
+
 /**
  * RAII wrapper for managing JUCE OpenGL context lifecycle.
  * Provides safe attach/detach operations with automatic cleanup.
+ *
+ * Updated for Task 1.7: Now includes GpuRenderHook management for
+ * future GPU effects integration.
  */
 class OpenGLManager
 #if OSCIL_ENABLE_OPENGL
@@ -52,6 +58,18 @@ public:
      */
     void setContextCreatedCallback(std::function<void()> callback);
 
+    /**
+     * Sets the GPU render hook for future effects processing.
+     * @param hook Shared pointer to hook implementation (nullptr for no-op)
+     */
+    void setGpuRenderHook(std::shared_ptr<GpuRenderHook> hook);
+
+    /**
+     * Gets the current GPU render hook.
+     * @return Current hook or nullptr if none set
+     */
+    [[nodiscard]] std::shared_ptr<GpuRenderHook> getGpuRenderHook() const;
+
 #if OSCIL_ENABLE_OPENGL
     // OpenGLRenderer interface
     void newOpenGLContextCreated() override;
@@ -64,6 +82,7 @@ private:
     juce::OpenGLContext context;
     std::function<void()> contextCreatedCallback;
     juce::Component* attachedComponent = nullptr;
+    std::shared_ptr<GpuRenderHook> gpuRenderHook;
 #endif
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OpenGLManager)

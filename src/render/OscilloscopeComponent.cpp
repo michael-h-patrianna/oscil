@@ -2,6 +2,9 @@
 
 #include "../plugin/PluginProcessor.h"
 #include "../dsp/RingBuffer.h"
+#include "../theme/ThemeManager.h"
+#include "OpenGLManager.h"
+#include "GpuRenderHook.h"
 #include <iostream>
 
 #if OSCIL_ENABLE_OPENGL
@@ -20,68 +23,190 @@ static Colour channelColour(int idx) {
 
 OscilloscopeComponent::OscilloscopeComponent(OscilAudioProcessor& proc) : processor(proc) {
     setInterceptsMouseClicks(false, false);
+
+    // Pre-allocate paths for expected maximum channels
+    cachedPaths.resize(8); // Start with 8 channels, will grow if needed
 }
 
-void OscilloscopeComponent::paint(Graphics& g) {
+void OscilloscopeComponent::setOpenGLManager(OpenGLManager* manager) {
+    openGLManager = manager;
+}
+
+void OscilloscopeComponent::setThemeManager(oscil::theme::ThemeManager* manager) {
+    themeManager = manager;
+}
+
+oscil::util::PerformanceMonitor::FrameStats OscilloscopeComponent::getPerformanceStats() const {
+    return performanceMonitor.getStats();
+}
+
+void OscilloscopeComponent::updateCachedBounds(int channelCount) {
     auto bounds = getLocalBounds().toFloat();
 
-    // DEBUG: Show renderer type
+    if (cachedBounds.isValid &&
+        cachedBounds.bounds == bounds &&
+        cachedBounds.lastChannelCount == channelCount) {
+        return; // Cache is still valid
+    }
+
+    cachedBounds.bounds = bounds;
+    cachedBounds.lastChannelCount = channelCount;
+    cachedBounds.channelHeight = bounds.getHeight() * 0.8f / juce::jmax(1, channelCount);
+    cachedBounds.channelSpacing = bounds.getHeight() * 0.8f / juce::jmax(1, channelCount);
+    cachedBounds.isValid = true;
+}
+
+juce::Colour OscilloscopeComponent::getChannelColor(int channelIndex) const {
+    if (themeManager != nullptr) {
+        return themeManager->getWaveformColor(channelIndex);
+    }
+    // Fallback to old static method if no theme manager
+    return channelColour(channelIndex);
+}
+
+void OscilloscopeComponent::renderChannel(juce::Graphics& graphics, int channelIndex,
+                                        const float* samples, size_t sampleCount) {
+    if (sampleCount <= 1) return;
+
+    graphics.setColour(getChannelColor(channelIndex));
+
+    // Ensure we have enough cached paths
+    if (static_cast<size_t>(channelIndex) >= cachedPaths.size()) {
+        cachedPaths.resize(static_cast<size_t>(channelIndex) + 1);
+    }
+
+    auto& path = cachedPaths[static_cast<size_t>(channelIndex)];
+    path.clear(); // Reuse existing path object
+
+    const auto w = cachedBounds.bounds.getWidth();
+    const auto h = cachedBounds.channelHeight;
+    const auto top = cachedBounds.bounds.getY() +
+                     static_cast<float>(channelIndex) * cachedBounds.channelSpacing;
+
+    // Apply decimation if needed
+    int targetPixels = static_cast<int>(w);
+    auto decimationResult = decimationProcessor.process(samples, sampleCount, targetPixels);
+
+    // Render using decimated or original data
+    for (size_t i = 0; i < decimationResult.sampleCount; ++i) {
+        float x = cachedBounds.bounds.getX() + static_cast<float>(i) /
+                 static_cast<float>(decimationResult.sampleCount - 1) * w;
+        float sampleValue = decimationResult.samples[i];
+        float y = top + h * 0.5f * (1.0f - juce::jlimit(-1.0f, 1.0f, sampleValue));
+
+        if (i == 0) {
+            path.startNewSubPath(x, y);
+        } else {
+            path.lineTo(x, y);
+        }
+    }
+
+    graphics.strokePath(path, juce::PathStrokeType(1.5f));
+}
+
+void OscilloscopeComponent::paint(Graphics& graphics) {
+    // Start performance timing
+    auto paintStartTime = performanceMonitor.startTiming();
+
+    frameCounter++;
+    performanceMonitor.recordFrame();
+
+    auto bounds = getLocalBounds().toFloat();
+
+    // Get GPU render hook if available
+    std::shared_ptr<GpuRenderHook> gpuHook = nullptr;
+    bool useGpuHook = false;
+
+#if OSCIL_ENABLE_OPENGL
+    if (openGLManager && openGLManager->isOpenGLActive()) {
+        gpuHook = openGLManager->getGpuRenderHook();
+        useGpuHook = gpuHook && gpuHook->isActive();
+    }
+#endif
+
+    // GPU Hook: Begin frame
+    if (useGpuHook) {
+        gpuHook->beginFrame(bounds, frameCounter);
+    }
+
+    // Try to get new audio data from the bridge
+    auto& bridge = processor.getWaveformDataBridge();
+    if (bridge.pullLatestData(currentSnapshot)) {
+        hasNewData = true;
+    }
+
+    // Reduced debug output to avoid performance impact
     static int debugCounter = 0;
     debugCounter++;
-    if (debugCounter % 120 == 0) { // Every ~2 seconds at 60fps
+    if (debugCounter % 3600 == 0) { // Every minute at 60fps
 #if OSCIL_ENABLE_OPENGL
-        // Check if we're running in an OpenGL context
         if (juce::OpenGLContext::getCurrentContext() != nullptr) {
-            std::cout << "[OSCIL] Renderer: JUCE Graphics with OpenGL acceleration" << std::endl;
+            if (useGpuHook) {
+                std::cout << "[OSCIL] Renderer: OpenGL + GPU Hook ACTIVE\n";
+            } else {
+                std::cout << "[OSCIL] Renderer: OpenGL acceleration\n";
+            }
         } else {
-            std::cout << "[OSCIL] Renderer: JUCE Graphics (CPU-based drawing)" << std::endl;
+            std::cout << "[OSCIL] Renderer: CPU-based drawing\n";
         }
 #else
-        std::cout << "[OSCIL] Renderer: JUCE Graphics (CPU-only, OpenGL disabled at compile time)" << std::endl;
+        std::cout << "[OSCIL] Renderer: CPU-only\n";
 #endif
     }
 
-    // background
-    g.setColour(Colour::fromRGB(24, 24, 24));
-    g.fillRoundedRectangle(bounds.reduced(6.f), 8.f);
+    // Background - use theme colors if available
+    if (themeManager != nullptr) {
+        graphics.setColour(themeManager->getBackgroundColor());
+    } else {
+        graphics.setColour(Colour::fromRGB(24, 24, 24));  // Fallback dark background
+    }
+    graphics.fillRoundedRectangle(bounds.reduced(6.f), 8.f);
 
-    // grid
-    g.setColour(Colour::fromRGBA(255, 255, 255, 20));
+    // Grid - use theme colors if available
+    if (themeManager != nullptr) {
+        graphics.setColour(themeManager->getGridColor().withAlpha(0.3f));
+    } else {
+        graphics.setColour(Colour::fromRGBA(255, 255, 255, 76));  // Fallback grid (30% opacity)
+    }
     const int gridLines = 8;
     for (int i = 1; i < gridLines; ++i) {
-        auto x = bounds.getX() + bounds.getWidth() * (float)i / gridLines;
-        auto y = bounds.getY() + bounds.getHeight() * (float)i / gridLines;
-        g.drawLine(x, bounds.getY(), x, bounds.getBottom(), 1.0f);
-        g.drawLine(bounds.getX(), y, bounds.getRight(), y, 1.0f);
+        auto x = bounds.getX() + bounds.getWidth() * static_cast<float>(i) / static_cast<float>(gridLines);
+        auto y = bounds.getY() + bounds.getHeight() * static_cast<float>(i) / static_cast<float>(gridLines);
+        graphics.drawLine(x, bounds.getY(), x, bounds.getBottom(), 1.0f);
+        graphics.drawLine(bounds.getX(), y, bounds.getRight(), y, 1.0f);
     }
 
-    // waveforms per channel
-    const int channels = processor.getNumRingBuffers();
+    // GPU Hook: Prepare for waveform drawing
+    if (useGpuHook) {
+        gpuHook->drawWaveforms(static_cast<int>(currentSnapshot.numChannels));
+    }
 
-    for (int ch = 0; ch < channels; ++ch) {
-        g.setColour(channelColour(ch));
-        auto path = juce::Path{};
-        auto& rb = processor.getRingBuffer(ch);
+    // Render waveforms from thread-safe snapshot data (optimized path)
+    if (hasNewData && currentSnapshot.numChannels > 0) {
+        const auto numChannels = static_cast<int>(currentSnapshot.numChannels);
 
-        const size_t N = juce::jmin((size_t)1024, rb.size());
-        std::vector<float> temp(N, 0.f);
-        rb.peekLatest(temp.data(), N);
+        // Update cached bounds for performance
+        updateCachedBounds(numChannels);
 
-        const auto w = bounds.getWidth();
-        const auto h = bounds.getHeight() * 0.8f / juce::jmax(1, channels);
-        const auto top = bounds.getY() + (float)ch * (bounds.getHeight() * 0.8f / juce::jmax(1, channels));
-        if (N > 1) {
-            for (size_t i = 0; i < N; ++i) {
-                float x = bounds.getX() + (float)i / (N - 1) * w;
-                float y = top + h * 0.5f * (1.0f - juce::jlimit(-1.0f, 1.0f, temp[i]));
-                if (i == 0)
-                    path.startNewSubPath(x, y);
-                else
-                    path.lineTo(x, y);
-            }
-            g.strokePath(path, juce::PathStrokeType(1.5f));
+        for (int ch = 0; ch < numChannels; ++ch) {
+            renderChannel(graphics, ch,
+                         currentSnapshot.samples[ch],
+                         currentSnapshot.numSamples);
         }
     }
+
+    // GPU Hook: Apply post-processing effects
+    if (useGpuHook) {
+        gpuHook->applyPostFx(nullptr); // nullptr = use default framebuffer
+    }
+
+    // GPU Hook: End frame
+    if (useGpuHook) {
+        gpuHook->endFrame();
+    }
+
+    // End performance timing
+    performanceMonitor.endTiming(paintStartTime);
 }
 
 void OscilloscopeComponent::resized() {}
