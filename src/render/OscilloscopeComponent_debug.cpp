@@ -4,10 +4,6 @@
 #include "../dsp/RingBuffer.h"
 #include <iostream>
 
-#if OSCIL_ENABLE_OPENGL
-#include <juce_opengl/juce_opengl.h>
-#endif
-
 using juce::Colour;
 using juce::Graphics;
 
@@ -25,22 +21,6 @@ OscilloscopeComponent::OscilloscopeComponent(OscilAudioProcessor& proc) : proces
 void OscilloscopeComponent::paint(Graphics& g) {
     auto bounds = getLocalBounds().toFloat();
 
-    // DEBUG: Show renderer type
-    static int debugCounter = 0;
-    debugCounter++;
-    if (debugCounter % 120 == 0) { // Every ~2 seconds at 60fps
-#if OSCIL_ENABLE_OPENGL
-        // Check if we're running in an OpenGL context
-        if (juce::OpenGLContext::getCurrentContext() != nullptr) {
-            std::cout << "[OSCIL] Renderer: JUCE Graphics with OpenGL acceleration" << std::endl;
-        } else {
-            std::cout << "[OSCIL] Renderer: JUCE Graphics (CPU-based drawing)" << std::endl;
-        }
-#else
-        std::cout << "[OSCIL] Renderer: JUCE Graphics (CPU-only, OpenGL disabled at compile time)" << std::endl;
-#endif
-    }
-
     // background
     g.setColour(Colour::fromRGB(24, 24, 24));
     g.fillRoundedRectangle(bounds.reduced(6.f), 8.f);
@@ -55,9 +35,43 @@ void OscilloscopeComponent::paint(Graphics& g) {
         g.drawLine(bounds.getX(), y, bounds.getRight(), y, 1.0f);
     }
 
-    // waveforms per channel
+    // DEBUG: Check ring buffer status
     const int channels = processor.getNumRingBuffers();
+    static int debugCounter = 0;
+    debugCounter++;
 
+    if (debugCounter % 60 == 0) { // Debug every 60 paint calls (~1 second at 60fps)
+        std::cout << "=== Oscilloscope Debug (paint #" << debugCounter << ") ===\n";
+        std::cout << "Channels: " << channels << "\n";
+
+        for (int ch = 0; ch < channels; ++ch) {
+            auto& rb = processor.getRingBuffer(ch);
+            const size_t N = juce::jmin((size_t)1024, rb.size());
+            std::vector<float> temp(N, 0.f);
+            rb.peekLatest(temp.data(), N);
+
+            // Check if we have any non-zero data
+            float minVal = 0.0f, maxVal = 0.0f;
+            bool hasData = false;
+            for (size_t i = 0; i < N; ++i) {
+                if (std::abs(temp[i]) > 0.001f) {
+                    hasData = true;
+                    minVal = std::min(minVal, temp[i]);
+                    maxVal = std::max(maxVal, temp[i]);
+                }
+            }
+
+            std::cout << "Channel " << ch << ": Ring buffer size=" << rb.size()
+                      << ", hasData=" << (hasData ? "YES" : "NO");
+            if (hasData) {
+                std::cout << ", range=[" << minVal << ", " << maxVal << "]";
+            }
+            std::cout << "\n";
+        }
+        std::cout << "\n";
+    }
+
+    // waveforms per channel
     for (int ch = 0; ch < channels; ++ch) {
         g.setColour(channelColour(ch));
         auto path = juce::Path{};
@@ -83,5 +97,3 @@ void OscilloscopeComponent::paint(Graphics& g) {
         }
     }
 }
-
-void OscilloscopeComponent::resized() {}

@@ -42,12 +42,35 @@ void OscilAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::M
     const int numChans = buffer.getNumChannels();
     const int numSamples = buffer.getNumSamples();
 
-    // For an analyzer effect, pass audio through unchanged
-    for (int ch = 0; ch < numChans; ++ch) {
-        auto* data = buffer.getWritePointer(ch);
-        // write into ring buffer
-        auto& rb = getRingBuffer(ch);
-        rb.push(data, (size_t)numSamples);
+    // Check if we're running as standalone app - if so, we'll use the input from the audio device
+    // For plugins (VST3, AU), we use the plugin's audio input directly
+    bool isStandalone = (wrapperType == wrapperType_Standalone);
+
+    if (!isStandalone) {
+        // Plugin mode: use the audio input provided by the host
+        // The buffer already contains the input audio from the DAW
+
+        // Store input in ring buffers for oscilloscope display
+        for (int ch = 0; ch < numChans; ++ch) {
+            const auto* inputData = buffer.getReadPointer(ch);
+            auto& ringBuffer = getRingBuffer(ch);
+            ringBuffer.push(inputData, static_cast<size_t>(numSamples));
+        }
+
+        // Pass through the audio unchanged (this is an analyzer/visualizer effect)
+        // No processing needed - output equals input
+    } else {
+        // Standalone mode: the buffer contains microphone/line input from the audio device
+        // Store this input in ring buffers for oscilloscope display
+        for (int ch = 0; ch < numChans; ++ch) {
+            const auto* inputData = buffer.getReadPointer(ch);
+            auto& ringBuffer = getRingBuffer(ch);
+            ringBuffer.push(inputData, static_cast<size_t>(numSamples));
+        }
+
+        // For standalone, we might want to pass the audio through to outputs
+        // so users can monitor what they're seeing
+        // (Audio already in buffer, so output = input by default)
     }
 }
 

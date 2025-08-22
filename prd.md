@@ -10,15 +10,16 @@
 ## Technical Requirements Summary
 
 ### Rendering Backend Decision
-The product adopts bgfx as the rendering backend abstraction (Metal on macOS, Direct3D12 on Windows, Vulkan where available, OpenGL only as fallback).
+The product now uses JUCE Graphics (CPU) as the primary rendering path with an optional `juce::OpenGLContext` for GPU compositing. No multi-backend abstraction layer is retained. Future visual FX and user-selectable shader support will be layered as a post-processing stage when OpenGL is enabled.
 
 Implications / Requirements:
 
-- CMake integration of bgfx, bx, bimg via FetchContent or subtree.
-- Shader build step invoking bgfx shaderc, producing per-backend binaries.
-- `RendererBackend` interface plus `BgfxRendererBackend` implementation.
-- Config flags: `OSCIL_BGFX_FORCE_BACKEND`, `OSCIL_BGFX_DEBUG`.
-- Runtime fallback path when initialization fails (reduced performance acceptable but functional for validation).
+- No external rendering libraries (bgfx removed) — simpler build, faster iteration.
+- Optional compile/runtime flag: `OSCIL_ENABLE_OPENGL` attaches JUCE OpenGL context.
+- Baseline rendering identical (CPU vs GPU) for correctness; GPU path focuses on offloading compositing and enabling FX.
+- Planned FX stages (persistence trail, glow) implemented as fragment shader post-processing on an offscreen texture.
+- Future advanced mode: user-provided fragment shader (dev mode) with sandboxed uniform interface.
+- Fallback to CPU path if OpenGL context creation or shader compile fails (graceful degradation, no crash).
 
 ### Performance Specifications
 - **Maximum Tracks**: 64 simultaneous audio inputs

@@ -45,114 +45,119 @@ This task list follows a systematic approach starting with core audio functional
 - ✅ 30 FPS timer-based UI refresh
 - ✅ Proper component hierarchy and lifecycle management
 
-### Task 1.4: Basic Waveform Rendering / Renderer Backend Prep ✅ PARTIALLY COMPLETED
+### Task 1.4: Basic Waveform Rendering (JUCE CPU) ✅ COMPLETED
+
 **Priority:** Critical
 **Dependencies:** Tasks 1.1, 1.2, 1.3
-**Status:** ✅ Software rendering implemented, GPU (bgfx) acceleration pending
+**Status:** ✅ Complete (CPU baseline established)
 
 **Current Implementation:**
-- ✅ OscilloscopeComponent with multi-channel waveform display
-- ✅ Color-coded channels with predefined palette
-- ✅ Grid overlay with 8x8 grid lines
-- ✅ Rounded rectangle background with dark theme
-- ✅ Real-time waveform updates at 30 FPS
+
+- ✅ `OscilloscopeComponent` multi-channel display (CPU paint)
+- ✅ Color palette per channel
+- ✅ Grid overlay & themed background
+- ✅ Real-time waveform updates (target ≥60 FPS timer possible)
 - ✅ Automatic vertical spacing for multiple channels
-- [ ] Integrate bgfx rendering backend (Metal/D3D12/Vulkan; OpenGL fallback)
-- [ ] Implement proper anti-aliasing (shader/thick line approach)
-- [ ] Add vertex / transient buffer optimization for 60+ FPS
 
 ---
 
-### Task 1.5: Basic UI Editor Window
-**Priority**: CRITICAL
-**Dependencies**: Task 1.1
+
+### Task 1.6: OpenGL Acceleration Scaffold (JUCE) ✅ COMPLETED
+
+**Priority**: HIGH (after CPU stability confirmed)
+**Dependencies**: Task 1.4
+**Estimated Time**: 6 hours
+**Status**: ✅ Successfully implemented and validated
+
+**Requirements**:
+
+- Attach optional `juce::OpenGLContext` to editor root (compile-time / runtime toggle `OSCIL_ENABLE_OPENGL`)
+- Ensure identical visual output CPU vs OpenGL active
+- Measure baseline CPU delta (expect reduction in fill/compositing cost)
+- Provide safe enable/disable path (context attach/detach) without leaks
+
+**Implementation Details**:
+
+- Simple flag in processor / state to request OpenGL
+- RAII wrapper for context lifecycle; repaint on context created callback
+- Fallback remains pure CPU path if flag off or context creation fails
+
+**Acceptance Criteria**:
+
+- Plugin runs identically with flag ON/OFF
+- No GL driver warnings on attach/detach (tested macOS Metal-backed GL)
+- ≤1 ms additional overhead per frame vs CPU-only; OR measurable CPU saving on high resolution redraw
+- Clean shutdown (no dangling contexts)
+
+**Test Validation**:
+
+- Toggle context multiple times in a session
+- Stress repaint (simulate 120 FPS) and monitor stability
+- Compare CPU usage with Instruments / Activity Monitor
+
+**Completed Implementation**:
+- ✅ Added `OSCIL_ENABLE_OPENGL` CMake option (default OFF for safety)
+- ✅ Created `OpenGLManager` RAII wrapper for context lifecycle
+- ✅ Integrated OpenGL context attachment into `PluginEditor`
+- ✅ Ensured identical visual output between CPU and OpenGL modes
+- ✅ Added proper compile-time and runtime checks
+- ✅ Implemented graceful fallback when OpenGL unavailable
+- ✅ Added logging to distinguish between rendering modes
+- ✅ Validated both CPU-only and OpenGL-enabled builds
+- ✅ Confirmed stable operation in standalone application
+
+### Task 1.7: OpenGL Renderer Abstraction Hook (Preparation) ⏳ PLANNED
+
+**Priority**: MEDIUM (after Task 1.6 proves stable)
+**Dependencies**: Task 1.6
 **Estimated Time**: 4 hours
 
-**Requirements**:
-- Create minimal plugin editor window using JUCE
-- Prepare component hierarchy to host bgfx renderer (no direct OpenGL context)
-- Implement basic window sizing and resizing
-- Create placeholder area for waveform display
-
-**Implementation Details**:
-- Inherit from juce::AudioProcessorEditor
-- Reserve child component that will own/manage RendererBackend lifecycle
-- Create main component layout (header, display area, controls)
-- Implement proper window sizing (minimum 800x600, resizable)
-
-**Acceptance Criteria**:
-- Plugin editor opens successfully when plugin is loaded
-- Placeholder host ready for RendererBackend attach/detach
-- Window is resizable with minimum dimensions enforced
-- Window closes cleanly without crashes
-- Basic layout structure is visible
-
-**Test Validation**:
-- Open plugin editor in DAW and verify it displays correctly
-- Resize window and confirm proper layout behavior
-- Close and reopen editor multiple times without issues
-
----
-
-### Task 1.6: GPU Waveform Rendering Foundation (bgfx)
-**Priority**: CRITICAL
-**Dependencies**: Task 1.2, Task 1.3
-**Estimated Time**: 10 hours
+**Purpose**: Provide a slim hook (strategy object or function callbacks) so future GPU FX passes can be inserted without rewriting the oscilloscope component.
 
 **Requirements**:
-- Integrate bgfx (fetch + init) and create RendererBackend interface
-- Implement basic bgfx waveform rendering for single channel
-- Create vertex / transient buffer management system
-- Render simple line-based waveform visualization
-- Achieve 60fps rendering performance target (single track)
-- Provide software (JUCE Graphics) fallback path if bgfx init fails
 
-**Implementation Details**:
-- Add FetchContent entries for bgfx, bx, bimg (or vendor subtree)
-- Create `RendererBackend` abstract class (init, shutdown, resize, render)
-- Implement `BgfxRendererBackend` (context init, view setup, submit call)
-- Write minimal shaders (vertex: transform + color, fragment: output color)
-- Implement dynamic/transient vertex buffer population per frame
-- Bridge audio buffer to geometry (interleaved time/amplitude pairs)
-- Provide fallback software draw if bgfx unavailable
+- Introduce optional interface `GpuRenderHook` with methods (beginFrame, drawWaveforms, applyPostFx, endFrame)
+- Default no-op implementation used when OpenGL disabled
+- Integrate into paint path only when OpenGL context active (guarded)
+- Zero overhead (branch + pointer check only) when disabled
 
 **Acceptance Criteria**:
-- Single-channel waveform displays in real-time via bgfx
-- Maintains 60fps with single track
-- Waveform updates smoothly without flickering
-- CPU usage <1% for single track rendering
-- bgfx initialization succeeds (or clean fallback path exercised)
-- No resource leaks on shutdown (validated via debug output)
+
+- CPU baseline unchanged (<0.1% delta) with hook disabled
+- Hook invoked correctly when enabled (log counters dev build)
+- No additional allocations per frame
 
 **Test Validation**:
-- Play audio and verify waveform displays correctly (bgfx path)
-- Simulate bgfx failure (env flag) and verify fallback renders
-- Monitor frame rate to confirm 60fps performance
-- Test with different audio content (sine wave, white noise, music)
-- Verify smooth real-time updates
+
+- Enable hook with dummy implementation counting frames
+- Verify counts match paint calls over time span
 
 ---
 
 ## Phase 2: Single-Track Proof of Concept (Week 2)
 
 ### Task 2.1: Audio Thread to UI Thread Communication
+
 **Priority**: CRITICAL
 **Dependencies**: Task 1.2, Task 1.4
 **Estimated Time**: 6 hours
 
 **Requirements**:
+
 - Implement lock-free communication between audio and UI threads
 - Use atomic operations for thread-safe data transfer
 - Minimize latency and prevent audio thread blocking
 - Handle buffer synchronization correctly
 
 **Implementation Details**:
+
 - Create lock-free circular buffer with atomic read/write pointers
 - Implement FIFO queue for audio data packets
 - Use std::atomic for thread-safe state management
 - Ensure audio thread never blocks on UI operations
 
 **Acceptance Criteria**:
+
 - Audio thread never blocks during UI data transfer
 - UI updates within 10ms of audio capture
 - No audio dropouts during heavy UI activity
@@ -160,6 +165,7 @@ This task list follows a systematic approach starting with core audio functional
 - System remains stable under continuous operation
 
 **Test Validation**:
+
 - Run continuous audio with UI updates for 10+ minutes
 - Monitor for audio dropouts or glitches
 - Verify timing accuracy with known test signals
@@ -168,23 +174,27 @@ This task list follows a systematic approach starting with core audio functional
 ---
 
 ### Task 2.2: Single Track State Management
+
 **Priority**: HIGH
 **Dependencies**: Task 1.4
 **Estimated Time**: 4 hours
 
 **Requirements**:
+
 - Implement basic state management for single track
 - Store track configuration (color, visibility, name)
 - Support state persistence across plugin reload
 - Use JUCE ValueTree for state storage
 
 **Implementation Details**:
+
 - Create TrackState structure with basic properties
 - Implement state serialization/deserialization
 - Use juce::ValueTree for hierarchical state management
 - Support plugin state save/restore in DAW
 
 **Acceptance Criteria**:
+
 - Track state persists across plugin reload
 - State changes are immediately reflected in UI
 - State serialization is backward compatible
@@ -192,6 +202,7 @@ This task list follows a systematic approach starting with core audio functional
 - State operations complete within 1ms
 
 **Test Validation**:
+
 - Configure track settings, save project, reload, verify settings preserved
 - Test state persistence across DAW restart
 - Verify state changes update UI immediately
@@ -199,11 +210,13 @@ This task list follows a systematic approach starting with core audio functional
 ---
 
 ### Task 2.3: Basic Color and Theme System
+
 **Priority**: MEDIUM
 **Dependencies**: Task 1.4, Task 2.2
 **Estimated Time**: 6 hours
 
 **Requirements**:
+
 - Implement basic dark and light themes
 - Support per-track color assignment
 - Create theme switching without visual artifacts
@@ -229,58 +242,62 @@ This task list follows a systematic approach starting with core audio functional
 
 ---
 
-### Task 2.4: Single Track Performance Optimization
+### Task 2.4: Single Track Performance Optimization (CPU Baseline)
+
 **Priority**: CRITICAL
 **Dependencies**: Task 2.1, Task 1.4
-**Estimated Time**: 8 hours
+**Estimated Time**: 6 hours
 
 **Requirements**:
-- Optimize single track rendering to <1% CPU usage
-- Implement level-of-detail (LOD) rendering
-- Optimize vertex buffer management
-- Achieve stable 60fps performance
+
+- Reduce per-frame allocations to zero
+- Introduce optional decimation (min/max stride) when pixel density < threshold
+- Hit stable 60 FPS @ standard window size
+- Profile paint hot paths (Path assembly vs direct line drawing)
 
 **Implementation Details**:
-- Implement vertex/instance buffer pooling and reuse
-- Add LOD system reducing vertex count when zoomed out
-- Optimize bgfx state changes and submit batching (minimize program / buffer binds)
-- Profile and eliminate performance bottlenecks
+
+- Pre-size temporary sample arrays / paths
+- Add lightweight min/max reducer (fallback no-op for small buffers)
+- Use `juce::Graphics::drawLine` or cached Path depending on channel sample count
 
 **Acceptance Criteria**:
-- Single track uses <1% CPU on reference hardware
-- Maintains stable 60fps under all zoom levels
-- Memory usage <10MB for single track
-- No frame drops during continuous operation
-- Rendering performance scales linearly with data complexity
+
+- CPU <1% single track at 60 FPS (reference machine)
+- No heap allocations detected in paint under normal operation
+- Frame pacing variance <2 ms std dev over 10s sample
 
 **Test Validation**:
-- Monitor CPU usage during extended operation
-- Test performance with complex audio signals
-- Verify frame rate stability over time
-- Profile memory usage for leaks
+
+- Instrument paint with timing logs
+- Simulate different window widths (zoom levels)
 
 ---
 
 ## Phase 3: Multi-Track Core (Weeks 3-4)
 
 ### Task 3.1: Multi-Track Audio Engine
+
 **Priority**: CRITICAL
 **Dependencies**: Task 2.4
 **Estimated Time**: 10 hours
 
 **Requirements**:
+
 - Extend audio capture system to support up to 64 tracks
 - Implement track management (add, remove, reorder)
 - Support individual track configuration
 - Maintain performance targets with multiple tracks
 
 **Implementation Details**:
+
 - Create MultiTrackEngine class managing multiple audio captures
 - Implement track registry with unique IDs
 - Support dynamic track addition/removal during runtime
 - Maintain separate audio buffers per track
 
 **Acceptance Criteria**:
+
 - Successfully manages up to 64 simultaneous tracks
 - Track addition/removal works without audio interruption
 - Each track maintains independent audio capture
@@ -288,41 +305,42 @@ This task list follows a systematic approach starting with core audio functional
 - System remains stable with maximum track count
 
 **Test Validation**:
+
 - Add tracks incrementally up to 64, verify each works correctly
 - Remove tracks randomly and verify system stability
 - Test with maximum track count for extended periods
 
 ---
 
-### Task 3.2: Multi-Track Waveform Rendering
+### Task 3.2: Multi-Track Waveform Rendering (CPU + Optional GL)
+
 **Priority**: CRITICAL
-**Dependencies**: Task 3.1, Task 2.4
-**Estimated Time**: 12 hours
+**Dependencies**: Task 3.1, Task 2.4, (optional) Task 1.6
+**Estimated Time**: 10 hours
 
 **Requirements**:
-- Render multiple waveforms simultaneously in overlay mode
-- Implement track-specific colors and styling
-- Maintain 60fps with 16 tracks, 30fps minimum with 64 tracks
-- Support individual track visibility control
+
+- Render overlay mode for N tracks (target 64)
+- Maintain 60 FPS with 16 tracks; ≥30 FPS at 64
+- Implement per-track visibility & color
+- Ensure OpenGL path (if enabled) requires no code divergence beyond context attach
 
 **Implementation Details**:
-- Extend WaveformRenderer to handle multiple tracks
-- Implement batch rendering for multiple waveforms
-- Create track-specific render states (color, line width, visibility)
-- Optimize GPU usage for multiple draw calls
+
+- Aggregate per-track sample views; reuse decimation
+- Shared drawing loop; each track draws sequentially
+- Optional GL: rely on JUCE internal accelerated compositing only
 
 **Acceptance Criteria**:
-- Displays up to 64 tracks simultaneously in overlay mode
-- Maintains 60fps with 16 tracks, 30fps minimum with 64 tracks
-- CPU usage <5% with 16 tracks, <16% with 64 tracks
-- Each track has distinct, configurable color
-- Individual track visibility toggles work instantly
+
+- Performance targets met
+- No visual difference CPU vs GL compositing
+- Visibility toggle latency <1 frame
 
 **Test Validation**:
-- Load 16 tracks and verify 60fps performance
-- Load 64 tracks and verify 30fps minimum performance
-- Test track visibility toggles with full track load
-- Monitor CPU usage under maximum load
+
+- Performance measurement with synthetic 64-track input
+- Rapid toggling of visibility & color changes
 
 ---
 
@@ -423,6 +441,70 @@ This task list follows a systematic approach starting with core audio functional
 ---
 
 ### Task 4.2: Timing and Synchronization Engine
+
+### Task 4.5: GPU Visual FX Layer (OpenGL Post-Processing) ⏳ PLANNED
+
+**Priority**: MEDIUM
+**Dependencies**: Task 1.7, Task 3.2
+**Estimated Time**: 10 hours (initial effects)
+
+**Goal**: Add optional eye-candy / clarity enhancements (glow, persistence/fade trail, additive blending, gamma-correct compositing) using simple OpenGL fragment programs managed via JUCE context (no external shader toolchain).
+
+**Requirements**:
+
+- Implement lightweight FBO (texture) capture of waveform pass
+- Apply 1–2 post effects (e.g., exponential decay trail & soft glow via separable blur or single-pass attenuation)
+- Provide user enable/disable & intensity controls
+- Ensure fallback (effects off) path adds negligible overhead (<0.2ms/frame)
+- Maintain functional parity (colors, timing) when effects disabled
+
+**Implementation Details**:
+
+- Use JUCE OpenGLRenderer callback (renderOpenGL) when context active
+- First pass: draw existing CPU path to texture via re-render or direct GL line strip (optional later)
+- Post pass: full-screen quad with shader applying decay / glow
+- Maintain ring buffer of previous frame(s) accumulation texture for persistence
+- Parameter block (uniform struct) updated once per frame
+
+**Acceptance Criteria**:
+
+- Effects toggle does not crash or leak GL resources
+- Persistence trail visually stable; decay parameter adjustable 0..1
+- Glow radius adjustable with minimal FPS drop (<10%) at 16 tracks
+- CPU cost increase <2% absolute with effects ON (reference machine)
+- No visual artifacts (tearing, incorrect alpha stacking)
+
+**Test Validation**:
+
+- Benchmark FPS with effects OFF vs ON (various settings)
+- Rapidly toggle effects on/off 50 times without resource growth
+- Visual inspection for frame blending artifacts
+
+### Task 4.6: FX Shader Extensibility (User Customization) ⏳ PLANNED
+
+**Priority**: LOW (post initial FX layer)
+**Dependencies**: Task 4.5
+**Estimated Time**: 8 hours
+
+**Goal**: Allow advanced users to experiment with custom fragment shader snippets (sandboxed) for waveform post-processing.
+
+**Requirements**:
+
+- Define minimal shader template with reserved uniforms (time, resolution, waveformTexture, parameters[8])
+- Load user GLSL fragment text (dev mode only or flagged build)
+- Compile & hot-reload on change (graceful fallback to previous on compile error)
+- Provide compile log UI feedback
+
+**Acceptance Criteria**:
+
+- Invalid shader reverts to last good without crash
+- Hot reload latency <500ms
+- Parameter uniform updates reflected next frame
+
+**Test Validation**:
+
+- Introduce intentional syntax errors and verify fallback
+- Modify parameters live and confirm visual response
 **Priority**: HIGH
 **Dependencies**: Task 3.1
 **Estimated Time**: 12 hours
@@ -529,17 +611,17 @@ This task list follows a systematic approach starting with core audio functional
 - Ensure memory usage stays under 640MB total
 
 **Implementation Details**:
-- Implement advanced LOD system for high track counts
-- Optimize bgfx rendering pipeline for batch operations (instancing, transient buffers, state sorting)
-- Create adaptive quality system based on system performance
-- Implement memory pooling and efficient buffer management
+- Advanced multi-level decimation (progressive min/max pyramid)
+- Adaptive quality mode (reduce per-track resolution under load)
+- Optional OpenGL: benchmark CPU vs GL; auto-suggest enabling GL if beneficial
+- Memory pooling for per-track temporary buffers
 
 **Acceptance Criteria**:
 - Stable operation with 64 tracks for extended periods (60+ minutes)
-- Frame rate ≥30fps minimum, target 60fps with 64 tracks
-- CPU usage <16% on reference hardware with 64 tracks
+- Frame rate ≥30 FPS minimum, target 60 FPS with 64 tracks
+- CPU usage <16% (with GL disabled) and ≤12% (if GL enabled) on reference hardware
 - Memory usage <640MB total with maximum track load
-- No memory leaks during extended operation
+- No leaks (validated via tools)
 
 **Test Validation**:
 - Load 64 tracks and run continuous test for 60+ minutes
@@ -653,7 +735,7 @@ This task list follows a systematic approach starting with core audio functional
   - Plugin loads in DAW without crashes
   - Audio capture works at all supported sample rates
   - Basic waveform displays in real-time
-  - bgfx renderer initializes (or cleanly falls back) correctly
+  - JUCE CPU renderer stable; OpenGL path deferred
 
 ### Phase 2 Validation (Week 2)
 - **Target**: Complete single-track oscilloscope with optimized performance

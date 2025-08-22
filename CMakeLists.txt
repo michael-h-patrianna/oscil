@@ -20,6 +20,7 @@ option(OSCIL_WARNINGS_AS_ERRORS "Treat warnings as errors for project sources" O
 option(OSCIL_ENABLE_IWYU "Enable include-what-you-use if available" OFF)
 option(OSCIL_ENABLE_COVERAGE "Enable coverage flags and gcovr target (Linux/Debug)" OFF)
 option(OSCIL_BUILD_UNIVERSAL "On macOS build a universal (arm64+x86_64) binary" ON)
+option(OSCIL_ENABLE_OPENGL "Enable optional OpenGL acceleration via JUCE OpenGL context (default OFF for safety)" OFF)
 
 # Allow user to override JUCE tag; default to master to track latest until pinned
 set(JUCE_GIT_REPOSITORY "https://github.com/juce-framework/JUCE.git" CACHE STRING "JUCE git repository")
@@ -105,11 +106,13 @@ set(OSCIL_SOURCES
   src/plugin/PluginProcessor.cpp
   src/plugin/PluginEditor.cpp
   src/render/OscilloscopeComponent.cpp
+  src/render/OpenGLManager.cpp
 )
 set(OSCIL_HEADERS
   src/plugin/PluginProcessor.h
   src/plugin/PluginEditor.h
   src/render/OscilloscopeComponent.h
+  src/render/OpenGLManager.h
   src/dsp/RingBuffer.h
 )
 
@@ -136,6 +139,7 @@ juce_add_plugin(oscil_plugin
     NEEDS_MIDI_INPUT            FALSE
     NEEDS_MIDI_OUTPUT           FALSE
     IS_MIDI_EFFECT              FALSE
+    MICROPHONE_PERMISSION_ENABLED TRUE
     VST3_CATEGORIES            "Fx|Analyzer"
     VST3_SUBCATEGORIES         "Analyzer"
   COPY_PLUGIN_AFTER_BUILD     TRUE
@@ -168,6 +172,16 @@ target_link_libraries(oscil_plugin
     juce::juce_gui_basics
     juce::juce_gui_extra
 )
+
+# Conditionally link OpenGL module if enabled
+if(OSCIL_ENABLE_OPENGL)
+  target_link_libraries(oscil_plugin PRIVATE juce::juce_opengl)
+  target_compile_definitions(oscil_plugin PRIVATE OSCIL_ENABLE_OPENGL=1)
+  message(STATUS "OpenGL acceleration enabled via JUCE OpenGL module")
+else()
+  target_compile_definitions(oscil_plugin PRIVATE OSCIL_ENABLE_OPENGL=0)
+  message(STATUS "OpenGL acceleration disabled (CPU-only rendering)")
+endif()
 
 # Apply sanitizers selectively (avoid by default on plugin to prevent host scan crashes)
 if(OSCIL_ENABLE_SANITIZERS AND CMAKE_BUILD_TYPE MATCHES Debug)

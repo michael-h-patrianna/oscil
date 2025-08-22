@@ -6,6 +6,7 @@
 
 class OscilAudioProcessor;
 class OscilloscopeComponent;
+class OpenGLManager;
 
 class OscilAudioProcessorEditor : public juce::AudioProcessorEditor, private juce::Timer {
    public:
@@ -15,11 +16,17 @@ class OscilAudioProcessorEditor : public juce::AudioProcessorEditor, private juc
     void paint(juce::Graphics&) override;
     void resized() override;
 
+    // OpenGL management
+    void enableOpenGL();
+    void disableOpenGL();
+    [[nodiscard]] bool isOpenGLEnabled() const;
+
    private:
     void timerCallback() override;
 
     OscilAudioProcessor& ap;
     std::unique_ptr<OscilloscopeComponent> oscilloscope;
+    std::unique_ptr<OpenGLManager> openGLManager;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(OscilAudioProcessorEditor)
 };

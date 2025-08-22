@@ -17,36 +17,37 @@ The system is decomposed into *real‑time audio core*, *rendering pipeline*, *s
 - Cross‑DAW format compatibility & robust state persistence
 - Extensibility for later features (timing modes, signal processing, theming)
 
-## 2. High-Level Layered Model
+## 2. High-Level Layered Model (JUCE‑Only Rendering)
 
 ```text
 +-----------------------------------------------------------+
 |            Host / DAW Integration Layer (JUCE)            |
 +-------------------------+---------------------------------+
 |   Plugin Processor      |       Editor / UI Root          |
-| (Audio Thread, RT Core) |  (Message Thread + bgfx submit) |
+| (Audio Thread, RT Core) |  (Message Thread)               |
 +-------------------------+---------------------------------+
 |   Real-Time Engine Subsystems (Lock-Free Data Flow)       |
 |   - MultiTrackEngine / TrackCapture                       |
 |   - SignalProcessor (modes)                               |
 |   - TimingEngine (sync, triggers)                         |
 +-----------------------------------------------------------+
-|              Rendering & Visualization Layer              |
-|   - WaveformDataBridge (intermediate snapshot)           |
-|   - WaveformGeometryBuilder (background prep)            |
-|   - RendererBackend (WaveformCanvas + bgfx buffers)      |
+|        Rendering & Visualization (JUCE Graphics API)      |
+|   - WaveformDataBridge (intermediate snapshot)            |
+|   - (Optional) Decimation/Geometry helper                 |
+|   - OscilloscopeComponent (paint; optional OpenGL ctx)    |
 +-----------------------------------------------------------+
 |            State, Theme, Layout & Interaction Layer       |
 |   - OscilState (ValueTree)                                |
 |   - TrackState, LayoutState, ThemeState                   |
-|   - ThemeManager, LayoutManager                          |
-|   - Command / Action system (optional future)             |
+|   - ThemeManager, LayoutManager                           |
 +-----------------------------------------------------------+
 |                Utilities & Infrastructure                 |
 |   - Lock-free containers, ring buffers, profiling         |
 |   - Build system (CMake), Tests (Catch2)                  |
 +-----------------------------------------------------------+
 ```
+
+The former renderer abstraction + bgfx backend has been removed. We rely solely on JUCE CPU drawing with an optional `juce::OpenGLContext` attachment for GPU compositing (no custom shaders).
 
 ## 3. Core Modules & Responsibilities
 
@@ -58,8 +59,8 @@ The system is decomposed into *real‑time audio core*, *rendering pipeline*, *s
 | SignalProcessor | Stereo modes, correlation, mid/side, difference | Audio | Branch-light, SIMD-ready |
 | TimingEngine | Transport sync, window sizing, trigger detection | Audio | Sample-accurate decisions |
 | WaveformDataBridge | Copies reduced data to UI-safe structure | Audio→Bridge | Single-producer / single-consumer |
-| GeometryBuilder (background) | Decimates & converts samples to vertices | Background Worker | Avoids UI stalls |
-| RendererBackend (WaveformCanvas + Renderers) | Draws batched track waveforms via bgfx | Message (bgfx submit) | Minimize state changes / submit calls |
+| WaveformDecimator (background, optional) | Reduces samples (min/max, stride) to lightweight arrays | Background Worker | Avoids UI stalls |
+| Rendering (OscilloscopeComponent) | CPU waveform drawing using JUCE Graphics (optionally accelerated by JUCE OpenGL context) | Message | Avoid blocking; minimize allocations |
 | LayoutManager | Overlay / Split / Grid / Tabbed arrangement | UI | O(visibleTracks) layout cost |
 | ThemeManager | Loads & applies themes, caches colors | UI |  <50 ms theme swap |
 | State (OscilState) | ValueTree persistence, versioning | UI (atomic snapshot) | Safe serialization |
@@ -78,14 +79,16 @@ The system is decomposed into *real‑time audio core*, *rendering pipeline*, *s
   SPSC wait-free queue or ring of fixed-size slots (atomic indices)
 
 [Message Thread]
-  Timer / Async trigger -> Drain new packets -> aggregate per track -> schedule background build
+  Timer / Async trigger -> Drain new packets -> aggregate per track
+                        -> (Optional) dispatch decimation worker (large data)
+                        -> repaint() of OscilloscopeComponent
 
-[Background Geometry Thread]
-  Build/decimate sample arrays -> produce vertex buffers (reuse pooled VBO IDs)
-  -> Post completion (message thread) -> mark track dirty
+[Optional Background Worker]
+  Decimate / compute min-max pairs -> light arrays for paint
 
-[GPU Render Pass]
-  On render callback: for dirty tracks update transient/dynamic vertex buffers & issue minimal bgfx::submit calls (instancing / batching)
+[JUCE Paint]
+  OscilloscopeComponent::paint iterates tracks and draws waveforms via JUCE Graphics.
+  If an OpenGL context is attached, JUCE handles GPU compositing transparently.
 ```
 
 ### Concurrency Primitives
@@ -93,21 +96,21 @@ The system is decomposed into *real‑time audio core*, *rendering pipeline*, *s
 - Single-producer/single-consumer ring for audio→UI (atomic head/tail)
 - Atomic flags for track dirty state
 - Pooled buffers (fixed-capacity freelists) to avoid new/delete churn
-- JUCE MessageThread enqueues minimal work; heavy lifting offloaded to geometry thread
+- JUCE MessageThread enqueues minimal work; heavy lifting offloaded to optional decimation worker
 
 ## 5. Performance Strategy
 
 | Concern | Strategy |
 |---------|----------|
 | CPU Scaling (64 tracks) | Per-track decimation & LOD; dynamic sample density based on zoom |
-| Memory Cap | Preallocate ring buffers sized by max window; reuse geometry & VBO pools |
-| Draw Calls | Batch by line style/color using interleaved vertex format + glMultiDrawArrays |
+| Memory Cap | Preallocate ring buffers sized by max window; reuse decimation scratch buffers |
+| Draw Cost | Minimize per-paint allocations; optional cached Paths or pre-decimated min/max pairs; optional JUCE OpenGL context for GPU compositing |
 | Latency | Push-based bridge; UI wakes ≤ one frame interval after audio write |
 | GC / Allocations | Pre-size ValueTree nodes; custom small object pools (optional phase 2) |
 | Cache Locality | SoA for amplitude arrays; contiguous per-track metadata block |
 | SIMD | Optional vectorized min/max & decimation (AVX2 / NEON) |
 
-## 6. Directory & File Structure (Proposed)
+## 6. Directory & File Structure (Updated)
 
 Current root already contains `src/`, `tests/`. We extend & segment logically.
 
@@ -152,15 +155,10 @@ root/
       Downsampler.h / .cpp (future LOD)
       SIMDUtils.h
     render/
-      WaveformCanvasComponent.h
-      WaveformCanvasComponent.cpp
-      WaveformRenderer.h                # per-track logic & VBO mgmt
-      WaveformRenderer.cpp
-      GeometryBuilder.h
-      GeometryBuilder.cpp
-  RendererBackend.h                 # interface
-  BgfxRendererBackend.cpp           # implementation
-  BgfxShaders.h                     # embedded / loaded shader handles
+      OscilloscopeComponent.h
+      OscilloscopeComponent.cpp
+      WaveformDecimator.h            # optional (min/max, stride)
+      WaveformDecimator.cpp
       GridOverlayComponent.h
       GridOverlayComponent.cpp
       CursorOverlayComponent.h
@@ -219,7 +217,7 @@ root/
   resources/
     icons/
     themes/                             # optional JSON custom themes
-    shaders/                            # if not embedding
+
 
   docs/
     api/                                # Doxygen / reference (future)
@@ -248,22 +246,16 @@ root/
 Serialization pipeline: ValueTree → XML (JUCE) for plugin state; separate JSON for theme export.
 Version migration: `Versioning::migrate(ValueTree&)` invoked on load; N-to-latest transformations.
 
-## 8. Rendering Pipeline Detail
+## 8. Rendering Pipeline Detail (JUCE‑Only)
 
-1. Audio writes raw (and optionally mode-processed) samples to per-track ring.
-2. Periodic UI tick requests snapshot window (duration derived from TimingEngine config).
-3. Decimation & min/max pair extraction (LODs) done in GeometryBuilder thread:
+1. Audio thread accumulates samples into per‑track ring buffers.
+2. UI timer (~60 FPS) asks WaveformDataBridge for latest snapshot window.
+3. Optional decimation (min/max pair, stride reduction) performed inline (few tracks) or via background worker (many tracks / high SR).
+4. `OscilloscopeComponent::paint` maps samples (or min/max pairs) to y coordinates and draws using JUCE Graphics primitives (`Path`, `drawLine`, or polyline helper).
+5. Overlays (grid, cursors, measurements) drawn after waveforms.
+6. If `OSCIL_ENABLE_OPENGL` and a context is attached, JUCE performs compositing on GPU automatically—no plugin shader maintenance.
 
-  - Input: contiguous float span (interleaved or per channel)
-  - Outputs: Vertex buffer (line strip or line list with degenerates for breaks)
-
-4. RendererBackend (bgfx) batches contiguous tracks:
-
-  - Shared shader program (uniform block for global transforms)
-  - Per-track color in uniform array or per-vertex attribute (compact RGBA8)
-  - LOD selection selects stride (e.g., 1x, 2x, 4x samples) based on pixel width / sample count ratio.
-
-5. Overlays (grid, cursor, measurement) drawn second pass (or same pass with layered z or alpha) to minimize state changes.
+Removed: bgfx pipeline, custom shaders, vertex buffer management, submission batching complexity.
 
 \n## 9. Signal Processing Modes
 `ProcessingModes.h` enumerates: Stereo, MonoSum, MidSide, LeftOnly, RightOnly, Difference.
@@ -302,17 +294,15 @@ Automate with CTest; optional performance tests excluded from default unless `-D
 ## 13. Build & Tooling
 
 - C++20 (`target_compile_features(... cxx_std_20)`)
-- JUCE modules via FetchContent or subdirectory (already bootstrapped)
-- Integrate bgfx (and dependencies bx, bimg) via FetchContent or external project.
-- Configuration flags:
+- JUCE modules via FetchContent (already bootstrapped)
+- No external rendering library (BGFX removed)
+- Configuration flags (current / planned):
   - `OSCIL_ENABLE_PROFILING`
   - `OSCIL_ENABLE_ASSERTS`
-  - `OSCIL_BGFX_FORCE_BACKEND` (metal|vulkan|d3d12|opengl|auto)
-  - `OSCIL_BGFX_DEBUG`
+  - `OSCIL_ENABLE_OPENGL` (attach JUCE OpenGL context if ON)
   - `OSCIL_MAX_TRACKS` (default 64)
 - Platform abstraction in `util/Platform.h` (OS & compiler macros)
-- Shader build: invoke bgfx shaderc at configure/build; outputs platform-specific binaries in `resources/shaders/bin/`.
-- Shader loading: runtime load & create bgfx program handles cached in `BgfxShaders.h/cpp` or embed compressed blobs.
+- No shader compilation or external GPU asset pipeline required.
 
 ## 14. Memory Budget & Allocation Plan
 
@@ -336,7 +326,7 @@ Automate with CTest; optional performance tests excluded from default unless `-D
 
 | Risk | Impact | Mitigation |
 |------|--------|-----------|
-| Cross-backend feature gaps (bgfx vs native APIs) | Visual fidelity regression | Keep abstraction thin; allow optional native path later |
+| Optional OpenGL context overhead | Possible redundant CPU→GPU copies | Runtime toggle; disable if driver issues |
 | Excessive CPU at 64 tracks | Miss perf targets | Early perf harness, LOD + batching, profiling gates in CI |
 | State schema churn | Migration complexity | Central `Versioning` unit tests + semantic version gating |
 | Thread contention on UI updates | Frame drops | SPSC queue + background geometry thread |
@@ -346,11 +336,11 @@ Automate with CTest; optional performance tests excluded from default unless `-D
 
 | Phase Task | Architecture Element |
 |------------|----------------------|
-| 1.4 Rendering foundation (bgfx) | `render/` (WaveformCanvas, basic renderer backend) |
+| 1.4 Rendering foundation | `render/` (OscilloscopeComponent) |
 | 2.1 Audio↔UI comms | `AtomicRingQueue`, `WaveformDataBridge` |
-| 2.4 Perf optimization | GeometryBuilder, LOD, batching |
+| 2.4 Perf optimization | Decimation helper, LOD strategies |
 | 3.1 Multi-Track Engine | `MultiTrackEngine`, TrackCapture |
-| 3.2 Multi-Track Rendering | Multi-draw batching in renderer |
+| 3.2 Multi-Track Rendering | Optimized paint traversal / optional decimation |
 | 3.3 Layout System | `LayoutManager`, grid containers |
 | 4.x Signal/Timing | `SignalProcessor`, `TimingEngine` |
 | 5.x Themes | `ThemeManager`, `ColorTheme` |
@@ -360,17 +350,139 @@ Automate with CTest; optional performance tests excluded from default unless `-D
 
 1. Restructure directories; move existing code into `plugin/`, `render/`, `audio/` segments.
 2. Introduce `MultiTrackEngine` (initially single track facade wrapping existing ring buffer).
-3. Add bgfx pipeline (RendererBackend abstraction + basic line rendering; retain software fallback path behind flag if needed).
-4. Implement `WaveformDataBridge` + simple geometry builder (single-threaded first; add background thread later).
+3. Implement JUCE oscilloscope rendering (CPU path; optional OpenGL context flag).
+4. Implement `WaveformDataBridge` + optional decimation helper (single-threaded first; add background worker later if needed).
 5. Add `SignalProcessor` & correlation metrics.
 6. Integrate `TimingEngine` (basic modes → advanced triggers later).
 7. Introduce `OscilState` / `TrackState` & migration skeleton.
 8. Theme system & expanded UI components.
-9. Performance tuning & LOD.
+9. Performance tuning & LOD (optimize paint & decimation strategies).
 10. Extended layouts & multi-track scaling.
 
-\n## 19. Acceptance Traceability
-This architecture explicitly supports PRD acceptance criteria AC001–AC008 via isolated modules with testable seams (e.g., decimation, correlation, timing). Performance headroom ensured by early introduction of background geometry processing and batching strategies.
+\n## 19. GPU FX & Shader Extensibility (Planned)
+
+Objective: Provide optional GPU-accelerated visual enhancements and user-selectable shader effects without reintroducing a heavy multi-backend layer.
+
+Planned Stages:
+
+- Stage A (Task 1.6): Optional `juce::OpenGLContext` attachment (no visual changes; performance baseline).
+- Stage B (Task 1.7): Lightweight `GpuRenderHook` interface (beginFrame / drawWaveforms / postFx / endFrame) — no-op when disabled.
+- Stage C (Task 4.5): Built-in FX passes (persistence trail, glow) implemented as simple post fragment programs operating on an offscreen texture.
+- Stage D (Task 4.6): Developer / advanced user custom fragment shader hot-reload (guarded by dev flag) with sandboxed uniform set.
+
+Design Principles:
+
+- Zero divergence: Core waveform generation logic unchanged; FX only post-process composited image.
+- Graceful fallback: Disable FX automatically if context fails or shader compile errors persist.
+- Safety: Validate shader length, forbid disallowed GLSL keywords (e.g., imageStore if not needed) to reduce crash risk.
+- Performance Budget: Post FX pass ≤10% of total frame time at 16 tracks; GPU path should reduce CPU compositing cost measurably at high resolutions.
+
+Data Flow (GPU FX Enabled):
+
+```text
+paint() -> (if GL active) invoke GpuRenderHook.beginFrame()
+         -> draw waveforms (CPU -> JUCE Graphics) OR future direct GL lines
+         -> GpuRenderHook.applyPostFx(renderTargetTexture)
+         -> GpuRenderHook.endFrame()
+```
+
+User Shader Contract (proposed fragment uniforms):
+
+- sampler2D uWaveformTex
+- vec2 uResolution
+- float uTime
+- float uDecay / uGlowIntensity
+- vec4 uColorParams[4] (spare params)
+
+Failure Handling:
+
+- On compile failure: retain last good program; surface log (dev build UI panel).
+- On persistent failures (>N in window): disable custom shader feature for session.
+
+Additional Risks (added to §16 conceptually):
+
+- User shader instability → mitigate with sandbox + fallback
+- Overdraw / excessive effects → cap passes (max 2) and texture sizes.
+
+## 20. Development Workflow & Audio Input Configuration
+
+### Development Strategy
+
+The Oscil project follows a **standalone-first development workflow** to optimize development velocity and testing efficiency:
+
+**Primary Development Cycle:**
+1. **Feature Development:** Build and test new features primarily in the standalone application
+2. **Iterative Testing:** Use standalone app with microphone/line input for rapid prototyping
+3. **Milestone Validation:** At key milestones, build and test all plugin formats (VST3/AU) in real DAWs
+
+**Benefits of Standalone-First Approach:**
+- Faster build times (no plugin wrapper overhead)
+- Direct microphone input for immediate audio visualization testing
+- Simplified debugging without DAW host complexity
+- Rapid iteration cycles for UI and rendering development
+
+### Audio Input Configuration
+
+The system implements **conditional audio input routing** based on the JUCE wrapper type:
+
+| Format | Audio Input Source | Use Case |
+|--------|-------------------|----------|
+| **Standalone App** | Microphone/Line Input | Development & standalone testing |
+| **VST3/AU Plugins** | Host/DAW Audio Input | Production use in DAWs |
+
+**Implementation Details:**
+```cpp
+// In PluginProcessor::processBlock()
+bool isStandalone = (wrapperType == wrapperType_Standalone);
+
+if (!isStandalone) {
+    // Plugin mode: use audio input from DAW host
+    // Store in ring buffers for oscilloscope display
+} else {
+    // Standalone mode: use microphone/audio device input
+    // Store in ring buffers for oscilloscope display
+}
+```
+
+### macOS Microphone Permissions
+
+**Required Configuration:**
+- CMakeLists.txt: `MICROPHONE_PERMISSION_ENABLED TRUE` in `juce_add_plugin()`
+- Generates `NSMicrophoneUsageDescription` in Info.plist
+- Ad-hoc code signing for proper permission dialogs
+
+**Permission Flow:**
+1. First launch of standalone app prompts for microphone access
+2. User grants permission via macOS dialog
+3. App can access microphone input for real-time visualization
+4. Permissions persist for subsequent launches
+
+**Troubleshooting:**
+- Check System Preferences > Privacy & Security > Microphone
+- Ensure "Oscil" app is listed and enabled
+- Try ad-hoc signing: `codesign --force --sign - Oscil.app`
+
+### Development Milestones
+
+**Phase 1 Milestones:** Core functionality in standalone
+- Basic oscilloscope visualization
+- Multi-track ring buffer management
+- Real-time rendering performance
+
+**Phase 2 Milestones:** Plugin validation
+- VST3/AU build and installation
+- DAW integration testing (Ableton Live, Bitwig Studio)
+- Host automation and state persistence
+
+**Phase 3 Milestones:** Advanced features
+- Signal processing modes (mid/side, correlation)
+- Timing and trigger systems
+- Theme and layout management
+
+## 19. Acceptance Traceability
+This architecture explicitly supports PRD acceptance criteria AC001–AC008 via isolated modules with testable seams (e.g., decimation, correlation, timing). Performance headroom ensured by optional background decimation and lightweight paint paths.
 
 ---
+Removed BGFX integration — simplification reduces maintenance, build time, and eliminates cross-backend complexity.
+
 End of Architecture Document.
