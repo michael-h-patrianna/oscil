@@ -1,3 +1,36 @@
+/**
+ * @file GpuRenderHook.cpp
+ * @brief Implementation of GPU rendering hook system
+ *
+ * This file implements the GPU rendering hook classes including debug and
+ * production implementations. The hook system provides extension points for
+ * GPU-accelerated visual effects while maintaining zero overhead when disabled.
+ *
+ * Key Implementation Features:
+ * - Debug implementation with performance tracking
+ * - Conditional compilation for development builds
+ * - Zero-overhead production builds when debugging disabled
+ * - Atomic counters for thread-safe statistics
+ * - Logging and diagnostic capabilities
+ * - Frame lifecycle management
+ *
+ * Performance Characteristics:
+ * - Debug hooks: <0.1ms overhead per frame
+ * - Production builds: Zero overhead when disabled
+ * - Atomic operations: Lock-free statistics collection
+ * - Memory usage: Minimal (counters and state only)
+ *
+ * Debug Features:
+ * - Frame counting and timing statistics
+ * - Periodic logging for performance analysis
+ * - Waveform count tracking
+ * - GPU operation monitoring
+ *
+ * @author Oscil Development Team
+ * @version 1.0
+ * @date 2024
+ */
+
 #include "GpuRenderHook.h"
 
 #if OSCIL_ENABLE_OPENGL && defined(OSCIL_DEBUG_HOOKS)

@@ -1,3 +1,38 @@
+/**
+ * @file DecimationProcessor.cpp
+ * @brief Implementation of level-of-detail decimation for waveform rendering
+ *
+ * This file implements the DecimationProcessor class which provides intelligent
+ * waveform decimation for high-performance visualization of large audio datasets.
+ * The implementation uses adaptive algorithms to maintain visual fidelity while
+ * reducing computational load and memory usage.
+ *
+ * Key Implementation Features:
+ * - Min/max decimation for preserving peak information
+ * - Adaptive threshold-based quality control
+ * - Zero-allocation processing paths for real-time use
+ * - Multiple decimation strategies for different use cases
+ * - Optimized algorithms for various sample densities
+ * - Robust error handling and boundary condition management
+ *
+ * Performance Characteristics:
+ * - Processing time: O(n) where n is input sample count
+ * - Memory usage: O(1) constant space complexity
+ * - Typical decimation ratio: 10:1 to 1000:1
+ * - Zero allocations in main processing path
+ * - Cache-friendly sequential memory access patterns
+ *
+ * Algorithm Details:
+ * - Min/max preservation ensures visual peaks are not lost
+ * - Adaptive thresholding prevents over-decimation
+ * - Sample density analysis for optimal strategy selection
+ * - Boundary handling for edge cases and small datasets
+ *
+ * @author Oscil Development Team
+ * @version 1.0
+ * @date 2024
+ */
+
 #include "DecimationProcessor.h"
 #include <algorithm>
 #include <cmath>

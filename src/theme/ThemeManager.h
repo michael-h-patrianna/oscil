@@ -19,7 +19,12 @@ public:
      */
     enum class ThemeId {
         DarkProfessional,
-        LightModern
+        DarkBlue,
+        PureBlack,
+        LightModern,
+        LightWarm,
+        ClassicGreen,
+        ClassicAmber
     };
 
     /**
@@ -90,6 +95,12 @@ public:
      * Fast color lookup methods for performance-critical rendering
      */
     juce::Colour getWaveformColor(int trackIndex) const;
+
+    /**
+     * Extended waveform color method for multi-track support (up to 64 tracks)
+     * Cycles through base 8 colors with variations for track counts > 8
+     */
+    juce::Colour getMultiTrackWaveformColor(int trackIndex) const;
     juce::Colour getBackgroundColor() const { return currentTheme->background; }
     juce::Colour getSurfaceColor() const { return currentTheme->surface; }
     juce::Colour getTextColor() const { return currentTheme->text; }

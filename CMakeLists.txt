@@ -110,11 +110,20 @@ set(OSCIL_SOURCES
   src/render/OpenGLManager.cpp
   src/render/GpuRenderHook.cpp
   src/render/DecimationProcessor.cpp
+  src/render/AdvancedDecimationProcessor.cpp
   src/audio/WaveformDataBridge.cpp
+  src/audio/MultiTrackEngine.cpp
+  src/audio/SignalProcessor.cpp
+  src/audio/MeasurementData.cpp
   src/state/TrackState.cpp
   src/theme/ColorTheme.cpp
   src/theme/ThemeManager.cpp
   src/util/PerformanceMonitor.cpp
+  src/ui/components/TrackSelectorComponent.cpp
+  src/ui/layout/LayoutManager.cpp
+  src/ui/measurements/CorrelationMeterComponent.cpp
+  src/ui/measurements/MeasurementOverlayComponent.cpp
+  src/timing/TimingEngine.cpp
 )
 set(OSCIL_HEADERS
   src/plugin/PluginProcessor.h
@@ -123,12 +132,22 @@ set(OSCIL_HEADERS
   src/render/OpenGLManager.h
   src/render/GpuRenderHook.h
   src/render/DecimationProcessor.h
+  src/render/AdvancedDecimationProcessor.h
   src/dsp/RingBuffer.h
   src/audio/WaveformDataBridge.h
+  src/audio/MultiTrackEngine.h
+  src/audio/SignalProcessor.h
+  src/audio/ProcessingModes.h
+  src/audio/MeasurementData.h
   src/state/TrackState.h
   src/theme/ColorTheme.h
   src/theme/ThemeManager.h
   src/util/PerformanceMonitor.h
+  src/ui/components/TrackSelectorComponent.h
+  src/ui/layout/LayoutManager.h
+  src/ui/measurements/CorrelationMeterComponent.h
+  src/ui/measurements/MeasurementOverlayComponent.h
+  src/timing/TimingEngine.h
 )
 
 # Define the plugin target using JUCE's CMake functions
@@ -271,12 +290,20 @@ if(BUILD_TESTING)
     tests/test_theme_system.cpp
     tests/test_performance_monitor.cpp
     tests/test_performance_optimizations.cpp
+    tests/test_64_track_performance.cpp
+    tests/test_multitrack_engine.cpp
+    tests/test_signal_processor_simple.cpp
+    tests/test_timing_engine.cpp
     src/audio/WaveformDataBridge.cpp
+    src/audio/MultiTrackEngine.cpp
+    src/audio/SignalProcessor.cpp
     src/state/TrackState.cpp
     src/theme/ColorTheme.cpp
     src/theme/ThemeManager.cpp
     src/util/PerformanceMonitor.cpp
     src/render/DecimationProcessor.cpp
+    src/render/AdvancedDecimationProcessor.cpp
+    src/timing/TimingEngine.cpp
   )
   target_link_libraries(oscil_tests PRIVATE
     Catch2::Catch2WithMain

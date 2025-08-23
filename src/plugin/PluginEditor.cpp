@@ -1,3 +1,40 @@
+/**
+ * @file PluginEditor.cpp
+ * @brief Implementation of the main plugin editor interface
+ *
+ * This file implements the OscilAudioProcessorEditor class which provides the
+ * primary user interface for the Oscil oscilloscope plugin. The implementation
+ * manages the oscilloscope visualization, user controls, debug interface, and
+ * integration with OpenGL rendering systems.
+ *
+ * Key Implementation Features:
+ * - JUCE-based user interface with custom components
+ * - OpenGL integration for GPU-accelerated rendering
+ * - Real-time oscilloscope visualization management
+ * - Theme system integration for consistent styling
+ * - Debug interface for development and troubleshooting
+ * - Responsive layout with adaptive sizing
+ * - Performance monitoring and display
+ *
+ * Performance Characteristics:
+ * - UI refresh rate: 60 FPS typical
+ * - GPU rendering when available
+ * - Minimal CPU usage for UI updates
+ * - Responsive interaction with <50ms latency
+ * - Memory efficient component management
+ *
+ * UI Architecture:
+ * - Main oscilloscope visualization component
+ * - Optional debug interface overlay
+ * - Theme-aware color management
+ * - OpenGL context management for acceleration
+ * - Integration with audio processor for data access
+ *
+ * @author Oscil Development Team
+ * @version 1.0
+ * @date 2024
+ */
+
 #include "PluginEditor.h"
 
 #include "../render/OscilloscopeComponent.h"

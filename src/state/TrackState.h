@@ -1,3 +1,16 @@
+/**
+ * @file TrackState.h
+ * @brief Track state management and serialization for oscilloscope tracks
+ *
+ * This file contains the TrackState class that manages persistent state
+ * for individual oscilloscope tracks including visual properties, settings,
+ * and serialization capabilities using JUCE ValueTree.
+ *
+ * @author Oscil Team
+ * @version 1.0
+ * @date 2024
+ */
+
 #pragma once
 
 #include <juce_data_structures/juce_data_structures.h>
@@ -6,8 +19,64 @@
 namespace oscil::state {
 
 /**
- * Represents the persistent state for a single track in the oscilloscope.
- * Uses JUCE ValueTree for state storage and serialization.
+ * @class TrackState
+ * @brief Persistent state management for individual oscilloscope tracks
+ *
+ * Represents and manages the complete persistent state for a single track
+ * in the oscilloscope including visual properties, display settings, and
+ * audio processing parameters. Uses JUCE ValueTree for efficient state
+ * storage, serialization, and automatic change notifications.
+ *
+ * The class provides type-safe accessors for all track properties while
+ * maintaining backward compatibility through version migration. State
+ * changes are automatically persisted and can be serialized to XML for
+ * project storage or preset management.
+ *
+ * Key features:
+ * - Type-safe property access with validation
+ * - Automatic serialization/deserialization via JUCE ValueTree
+ * - Version migration for backward compatibility
+ * - Thread-safe property access through ValueTree
+ * - XML import/export for human-readable storage
+ * - Change notification support via JUCE listeners
+ *
+ * Track properties managed:
+ * - **Track ID**: Unique identifier for referencing the track
+ * - **Display Name**: User-visible name for the track
+ * - **Color Index**: Index into theme color palette (0-63)
+ * - **Visibility**: Whether the track is currently displayed
+ * - **Gain**: Amplitude scaling factor for display
+ * - **Offset**: Vertical positioning offset for multi-track layouts
+ *
+ * State persistence:
+ * - Properties are automatically persisted in ValueTree
+ * - Supports XML serialization for project files
+ * - Version migration ensures compatibility with older files
+ * - Default values are applied for missing properties
+ *
+ * Thread safety:
+ * - Property access is thread-safe through ValueTree
+ * - State modifications are atomic
+ * - Change notifications can be received on any thread
+ *
+ * Example usage:
+ * @code
+ * // Create new track state
+ * TrackState track(0);
+ * track.setTrackName("Left Channel");
+ * track.setColorIndex(2);
+ * track.setGain(1.5f);
+ *
+ * // Serialize to XML
+ * juce::String xml = track.toXmlString();
+ *
+ * // Restore from XML
+ * TrackState restored = TrackState::fromXmlString(xml);
+ * @endcode
+ *
+ * @see oscil::theme::ThemeManager for color palette management
+ * @see audio::MultiTrackEngine for track processing integration
+ * @note State changes trigger ValueTree change notifications
  */
 class TrackState {
 public:

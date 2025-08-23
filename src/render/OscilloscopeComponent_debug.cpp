@@ -1,3 +1,41 @@
+/**
+ * @file OscilloscopeComponent_debug.cpp
+ * @brief Debug implementation of oscilloscope visualization component
+ *
+ * This file contains a debug/development version of the oscilloscope component
+ * implementation with additional logging, simplified rendering paths, and
+ * diagnostic features for troubleshooting and development purposes.
+ *
+ * Key Implementation Features:
+ * - Simplified rendering for debugging purposes
+ * - Enhanced logging and diagnostic output
+ * - Development-focused visualization modes
+ * - Performance monitoring and timing analysis
+ * - Debug-specific color schemes and markers
+ * - Fallback rendering when GPU acceleration unavailable
+ *
+ * Performance Characteristics:
+ * - Less optimized than production version
+ * - Additional diagnostic overhead acceptable
+ * - Simplified algorithms for easier debugging
+ * - Enhanced error checking and validation
+ * - Verbose logging for development analysis
+ *
+ * Debug Features:
+ * - Frame-by-frame rendering analysis
+ * - Audio data validation and diagnostics
+ * - Performance bottleneck identification
+ * - Visual debugging aids and overlays
+ * - Development-time configuration options
+ *
+ * @note This is a development/debug build component
+ * @note Not optimized for production use
+ *
+ * @author Oscil Development Team
+ * @version 1.0
+ * @date 2024
+ */
+
 #include "OscilloscopeComponent.h"
 
 #include "../plugin/PluginProcessor.h"
@@ -35,65 +73,74 @@ void OscilloscopeComponent::paint(Graphics& g) {
         g.drawLine(bounds.getX(), y, bounds.getRight(), y, 1.0f);
     }
 
-    // DEBUG: Check ring buffer status
-    const int channels = processor.getNumRingBuffers();
+    // DEBUG: Check multi-track engine status
+    auto& multiTrackEngine = processor.getMultiTrackEngine();
+    auto& bridge = multiTrackEngine.getWaveformDataBridge();
+
+    // Get latest audio data snapshot from the bridge
+    audio::AudioDataSnapshot snapshot;
+    bool hasData = bridge.pullLatestData(snapshot);
+
     static int debugCounter = 0;
     debugCounter++;
 
     if (debugCounter % 60 == 0) { // Debug every 60 paint calls (~1 second at 60fps)
         std::cout << "=== Oscilloscope Debug (paint #" << debugCounter << ") ===\n";
-        std::cout << "Channels: " << channels << "\n";
 
-        for (int ch = 0; ch < channels; ++ch) {
-            auto& rb = processor.getRingBuffer(ch);
-            const size_t N = juce::jmin((size_t)1024, rb.size());
-            std::vector<float> temp(N, 0.f);
-            rb.peekLatest(temp.data(), N);
+        std::cout << "MultiTrackEngine bridge has data: " << (hasData ? "YES" : "NO") << "\n";
 
-            // Check if we have any non-zero data
-            float minVal = 0.0f, maxVal = 0.0f;
-            bool hasData = false;
-            for (size_t i = 0; i < N; ++i) {
-                if (std::abs(temp[i]) > 0.001f) {
-                    hasData = true;
-                    minVal = std::min(minVal, temp[i]);
-                    maxVal = std::max(maxVal, temp[i]);
+        if (hasData) {
+            std::cout << "Channels: " << snapshot.numChannels << ", Samples per channel: " << snapshot.numSamples << "\n";
+
+            for (size_t ch = 0; ch < snapshot.numChannels && ch < 4; ++ch) { // Limit to 4 channels for debug
+                // Check if we have any non-zero data
+                float minVal = 0.0f;
+                float maxVal = 0.0f;
+                bool hasNonZeroData = false;
+
+                for (size_t i = 0; i < snapshot.numSamples; ++i) {
+                    float sample = snapshot.samples[ch][i];
+                    if (std::abs(sample) > 0.001f) {
+                        hasNonZeroData = true;
+                        minVal = std::min(minVal, sample);
+                        maxVal = std::max(maxVal, sample);
+                    }
                 }
-            }
 
-            std::cout << "Channel " << ch << ": Ring buffer size=" << rb.size()
-                      << ", hasData=" << (hasData ? "YES" : "NO");
-            if (hasData) {
-                std::cout << ", range=[" << minVal << ", " << maxVal << "]";
+                std::cout << "Channel " << ch << ": hasData=" << (hasNonZeroData ? "YES" : "NO");
+                if (hasNonZeroData) {
+                    std::cout << ", range=[" << minVal << ", " << maxVal << "]";
+                }
+                std::cout << "\n";
             }
-            std::cout << "\n";
         }
         std::cout << "\n";
     }
 
-    // waveforms per channel
-    for (int ch = 0; ch < channels; ++ch) {
-        g.setColour(channelColour(ch));
-        auto path = juce::Path{};
-        auto& rb = processor.getRingBuffer(ch);
+    // Render waveforms using data from MultiTrackEngine bridge
+    if (hasData && snapshot.numChannels > 0) {
+        const auto numChannels = static_cast<int>(snapshot.numChannels);
 
-        const size_t N = juce::jmin((size_t)1024, rb.size());
-        std::vector<float> temp(N, 0.f);
-        rb.peekLatest(temp.data(), N);
+        for (int ch = 0; ch < numChannels; ++ch) {
+            g.setColour(channelColour(ch));
+            auto path = juce::Path{};
 
-        const auto w = bounds.getWidth();
-        const auto h = bounds.getHeight() * 0.8f / juce::jmax(1, channels);
-        const auto top = bounds.getY() + (float)ch * (bounds.getHeight() * 0.8f / juce::jmax(1, channels));
-        if (N > 1) {
-            for (size_t i = 0; i < N; ++i) {
-                float x = bounds.getX() + (float)i / (N - 1) * w;
-                float y = top + h * 0.5f * (1.0f - juce::jlimit(-1.0f, 1.0f, temp[i]));
-                if (i == 0)
-                    path.startNewSubPath(x, y);
-                else
-                    path.lineTo(x, y);
+            const auto w = bounds.getWidth();
+            const auto h = bounds.getHeight() * 0.8f / juce::jmax(1, numChannels);
+            const auto top = bounds.getY() + static_cast<float>(ch) * (bounds.getHeight() * 0.8f / juce::jmax(1, numChannels));
+
+            if (snapshot.numSamples > 1) {
+                for (size_t i = 0; i < snapshot.numSamples; ++i) {
+                    float x = bounds.getX() + static_cast<float>(i) / static_cast<float>(snapshot.numSamples - 1) * w;
+                    float sampleValue = snapshot.samples[ch][i];
+                    float y = top + h * 0.5f * (1.0f - juce::jlimit(-1.0f, 1.0f, sampleValue));
+                    if (i == 0)
+                        path.startNewSubPath(x, y);
+                    else
+                        path.lineTo(x, y);
+                }
+                g.strokePath(path, juce::PathStrokeType(1.5f));
             }
-            g.strokePath(path, juce::PathStrokeType(1.5f));
         }
     }
 }

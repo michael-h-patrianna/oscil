@@ -1,3 +1,21 @@
+/**
+ * @file GpuRenderHook.h
+ * @brief Abstract interface for GPU-accelerated post-processing effects
+ *
+ * This file defines the GpuRenderHook interface which provides extension points
+ * for GPU-accelerated visual effects in the oscilloscope rendering pipeline.
+ * The hook system allows for future enhancement with post-processing effects
+ * while maintaining zero overhead when OpenGL is disabled.
+ *
+ * The design supports conditional compilation and runtime detection, ensuring
+ * the plugin functions correctly on systems without OpenGL support while
+ * providing enhanced visual capabilities on supported hardware.
+ *
+ * @author Oscil Development Team
+ * @version 1.0
+ * @date 2024
+ */
+
 #pragma once
 
 #include <juce_gui_basics/juce_gui_basics.h>
@@ -8,7 +26,8 @@
 #endif
 
 /**
- * Abstract interface for GPU-accelerated post-processing effects.
+ * @class GpuRenderHook
+ * @brief Abstract interface for GPU-accelerated post-processing effects
  *
  * This hook provides integration points for future GPU effects (Task 4.5, 4.6)
  * without requiring changes to the core oscilloscope rendering logic.
@@ -26,11 +45,55 @@
  * - Zero overhead when disabled (<0.1% performance delta)
  * - No heap allocations during hook lifecycle
  * - Hook invocation overhead <0.01ms per frame when enabled
+ *
+ * Design Patterns:
+ * - Interface segregation: Minimal interface for hook implementations
+ * - RAII: Frame lifecycle managed through begin/end pairs
+ * - Zero-cost abstraction: No overhead when features are unused
+ * - Conditional compilation: OpenGL code only compiled when enabled
+ *
+ * Future Extensions:
+ * This interface is designed to support planned enhancements including:
+ * - Shader-based waveform rendering (Task 4.5)
+ * - Real-time post-processing effects (Task 4.6)
+ * - Advanced visualization modes
+ * - Performance optimizations through GPU compute
+ *
+ * Example Implementation:
+ * @code
+ * class BloomEffect : public GpuRenderHook {
+ * public:
+ *     void beginFrame(const FrameContext& context) override {
+ *         // Set up render targets for bloom
+ *     }
+ *
+ *     void applyPostFx() override {
+ *         // Apply bloom shader
+ *     }
+ * };
+ * @endcode
+ *
+ * @see OpenGLManager for context management
+ * @see OscilloscopeComponent for integration point
  */
 class GpuRenderHook
 {
 public:
+    /**
+     * @brief Default constructor for GPU render hook
+     *
+     * Initializes the hook with default state. Derived classes should
+     * initialize their OpenGL resources in their constructors or during
+     * the first beginFrame() call.
+     */
     GpuRenderHook() = default;
+
+    /**
+     * @brief Virtual destructor for proper cleanup
+     *
+     * Ensures derived classes can properly clean up OpenGL resources.
+     * Derived classes should release all GPU resources in their destructors.
+     */
     virtual ~GpuRenderHook() = default;
 
     // Non-copyable, non-movable for safety
@@ -40,35 +103,89 @@ public:
     GpuRenderHook& operator=(GpuRenderHook&&) = delete;
 
     /**
-     * Called at the beginning of the paint cycle when OpenGL context is active.
-     * @param bounds The component bounds for this frame
+     * @brief Called at the beginning of the paint cycle when OpenGL context is active
+     *
+     * This method is invoked at the start of each frame when GPU acceleration
+     * is available. Use this to set up render targets, update uniforms, or
+     * prepare any GPU resources needed for the frame.
+     *
+     * @param bounds The component bounds for this frame in pixels
      * @param frameCounter Current frame number for time-based effects
+     *
+     * @pre OpenGL context is current and valid
+     * @post GPU resources are prepared for frame rendering
+     *
+     * @note Called on the message thread only
+     * @note Should complete in <0.1ms for real-time performance
+     * @note May be called with different bounds each frame
      */
     virtual void beginFrame(const juce::Rectangle<float>& bounds, uint64_t frameCounter) = 0;
 
     /**
-     * Called after waveform geometry is prepared but before drawing.
+     * @brief Called after waveform geometry is prepared but before drawing
+     *
      * Allows for custom waveform rendering or geometry modification.
+     * This is the point where the CPU has prepared waveform paths and
+     * is about to render them. GPU-based waveform rendering can intercept
+     * this stage to render waveforms directly on the GPU.
+     *
      * @param waveformCount Number of waveforms about to be drawn
+     *
+     * @pre Waveform geometry has been calculated
+     * @pre OpenGL context is current and valid
+     * @post Custom waveform rendering completed (if applicable)
+     *
+     * @note Implementation may choose to render waveforms or delegate to CPU
+     * @note Should complete in <0.5ms for typical waveform counts
      */
     virtual void drawWaveforms(int waveformCount) = 0;
 
     /**
-     * Called after waveforms are drawn but before overlays (grid, cursors).
-     * This is the main post-processing hook for visual effects.
+     * @brief Called after waveforms are drawn but before overlays
+     *
+     * This is the main post-processing hook for visual effects. The
+     * waveforms have been rendered and this is the opportunity to apply
+     * GPU-based effects like bloom, blur, color grading, etc.
+     *
      * @param renderTarget The current framebuffer/texture (nullptr if using default)
+     *
+     * @pre Waveforms have been rendered to the framebuffer
+     * @pre OpenGL context is current and valid
+     * @post Post-processing effects have been applied
+     *
+     * @note This is where most visual effects should be implemented
+     * @note Should complete in <1ms for complex effects
+     * @note Effects should be additive and preserve original content
      */
     virtual void applyPostFx(void* renderTarget) = 0;
 
     /**
-     * Called at the end of the paint cycle.
-     * Perform any cleanup or final compositing here.
+     * @brief Called at the end of the paint cycle
+     *
+     * Perform any cleanup or final compositing here. This is the last
+     * opportunity to affect the rendered output before it's presented
+     * to the user.
+     *
+     * @pre All rendering for the frame is complete
+     * @post GPU resources are cleaned up or prepared for next frame
+     *
+     * @note Use for cleanup, statistics collection, or final composition
+     * @note Should complete in <0.1ms
      */
     virtual void endFrame() = 0;
 
     /**
-     * Query whether this hook performs any actual rendering.
+     * @brief Query whether this hook performs any actual rendering
+     *
+     * Allows the rendering system to skip hook invocation entirely when
+     * no effects are active. This optimization can save significant
+     * performance when GPU effects are disabled.
+     *
      * @return true if hook should be invoked, false to skip entirely
+     *
+     * @note Should be very fast (<0.01ms) as it's called every frame
+     * @note Return value may change dynamically based on user settings
+     * @note When false, all hook methods are bypassed
      */
     [[nodiscard]] virtual auto isActive() const -> bool = 0;
 };

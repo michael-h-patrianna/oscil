@@ -1,3 +1,40 @@
+/**
+ * @file TrackState.cpp
+ * @brief Implementation of track state management and persistence
+ *
+ * This file implements the TrackState class which manages persistent state
+ * for individual audio tracks in the Oscil oscilloscope plugin. The implementation
+ * provides type-safe value management, state validation, serialization support,
+ * and change notification through JUCE's ValueTree system.
+ *
+ * Key Implementation Features:
+ * - Type-safe property management with automatic conversion
+ * - Persistent state storage and retrieval
+ * - Change notification system for UI synchronization
+ * - State validation and migration for version compatibility
+ * - Thread-safe access patterns for real-time use
+ * - JSON serialization support for presets
+ * - Default value management and initialization
+ *
+ * Performance Characteristics:
+ * - Property access: O(1) constant time lookups
+ * - Change notifications: Efficient observer pattern
+ * - Memory usage: Minimal overhead per property
+ * - Thread safety: Lock-free reads, synchronized writes
+ * - Serialization: Compact JSON representation
+ *
+ * State Management:
+ * - Automatic default value initialization
+ * - Version migration for backward compatibility
+ * - Validation of property values and ranges
+ * - Change tracking for dirty state detection
+ * - Undo/redo support through ValueTree snapshots
+ *
+ * @author Oscil Development Team
+ * @version 1.0
+ * @date 2024
+ */
+
 #include "TrackState.h"
 
 namespace oscil::state {

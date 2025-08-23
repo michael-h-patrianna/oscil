@@ -127,16 +127,32 @@ TEST_CASE("WaveformDataBridge thread safety", "[WaveformDataBridge][threading]")
             bridge.pushAudioData(channelPointers, numChannels, numSamples, sampleRate);
             framesPushedByAudio.fetch_add(1);
 
-            // Simulate audio callback timing
-            std::this_thread::sleep_for(std::chrono::microseconds(100));
+            // Simulate audio callback timing - shorter for faster test
+            std::this_thread::sleep_for(std::chrono::microseconds(50));
         }
+
+        // Signal that audio thread is done
+        audioThreadRunning.store(false);
     });
 
     // UI thread simulation
     std::thread uiThread([&]() {
         AudioDataSnapshot snapshot;
+        auto startTime = std::chrono::steady_clock::now();
+        constexpr auto maxTestDuration = std::chrono::seconds(1); // Reduced timeout to 1 second
 
-        while (audioThreadRunning.load() || framesPulledByUI.load() < numFrames) {
+        // Run until audio thread stops OR timeout occurs
+        while (true) {
+            // Check for timeout first to prevent infinite hanging
+            if (std::chrono::steady_clock::now() - startTime > maxTestDuration) {
+                break;
+            }
+
+            // Check if audio thread is still running
+            if (!audioThreadRunning.load()) {
+                break;
+            }
+
             if (bridge.pullLatestData(snapshot)) {
                 framesPulledByUI.fetch_add(1);
 
@@ -147,13 +163,21 @@ TEST_CASE("WaveformDataBridge thread safety", "[WaveformDataBridge][threading]")
             }
 
             // Simulate UI refresh timing (slower than audio)
-            std::this_thread::sleep_for(std::chrono::milliseconds(16)); // ~60 FPS
+            std::this_thread::sleep_for(std::chrono::milliseconds(10)); // Reduced to 10ms for faster test
+        }
+
+        // Try to pull any remaining data after audio thread finishes
+        int remainingPulls = 3; // Reduced number of retries
+        while (remainingPulls-- > 0 && bridge.pullLatestData(snapshot)) {
+            framesPulledByUI.fetch_add(1);
+            REQUIRE(snapshot.numChannels == numChannels);
+            REQUIRE(snapshot.numSamples == numSamples);
+            REQUIRE(snapshot.sampleRate == sampleRate);
         }
     });
 
     // Wait for audio thread to complete
     audioThread.join();
-    audioThreadRunning.store(false);
 
     // Wait for UI thread to complete
     uiThread.join();
